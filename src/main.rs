@@ -1,36 +1,131 @@
 use std::cell::Cell;
-use std::io::Read;
+use std::collections::VecDeque;
+use std::fmt::format;
+use std::io::{Read, Write};
 use std::io::{Error, Result, ErrorKind};
 use bytebuffer::{ByteBuffer, ByteReader};
+use uuid::Uuid;
+use once_cell::sync::Lazy;
 
-use tokio::io::{self, AsyncReadExt};
-use tokio::net::TcpListener;
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
 
 const SEG_BITS: u32 = 0x7F;
 const CON_BIT: u32 = 0x80;
-
+const SERVER_ICON: &str = "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";
 //struct ByteBuffer {
 //    index: Cell<usize>,
 //    buffer: Vec<u8>
 //}
+
+struct PlayerSample {
+    uuid: Uuid,
+    name: String
+}
+
+impl PlayerSample {
+    fn to_json(&self) -> String {
+        format!(r#"{{
+            "name": "{}",
+            "id": "{}"
+        }}"#, self.name, self.uuid)
+    }
+
+    fn parse_list_to_json(vec: &Vec<PlayerSample>) -> String {
+        vec.iter().map(|obj| obj.to_json()).fold("".to_string(), |l, r| l + ",\n" + &r)
+    }
+
+}
+
+struct MinecraftStatus {
+    version_name: String,
+    protocol: u16,
+    max_players: u32,
+    online: u32,
+    sample: Vec<PlayerSample>,
+    description: String,
+    favicon: String,
+    enforces_secure_chat: bool,
+    previews_chat: bool
+}
+
+static STATUS: Lazy<MinecraftStatus>  = Lazy::new(|| {
+    MinecraftStatus {
+        version_name: "1.20.4".to_string(),
+        protocol: 765,
+        max_players: 100,
+        online: 0,
+        sample: vec![],
+        description: "{ \"text\": \"description here\" }".to_string(),
+        favicon: SERVER_ICON.to_string(),
+        enforces_secure_chat: false,
+        previews_chat: false
+    }
+});
+
+impl MinecraftStatus {
+
+    fn to_json(&self) -> String {
+        format!(r#" {{
+            "version": {{
+                "name": "{}",
+                "protocol": {}
+            }},
+            "players": {{
+                "max": {},
+                "online": {},
+                "sample": [
+                    {}
+                ]
+            }},
+            "description": {},
+            "favicon": "data:image/png;base64,{}",
+            "enforcesSecureChat": {},
+            "previewsChat": {}
+        }}
+        "#, self.version_name, self.protocol, self.max_players, self.online,
+         PlayerSample::parse_list_to_json(&self.sample), self.description, self.favicon, self.enforces_secure_chat, self.previews_chat)
+    }
+
+}
 
 trait MinecraftReadTypes {
     fn read_var_int(&mut self) -> std::io::Result<u32>;
 
     
     fn read_var_string(&mut self) -> std::io::Result<String>;
+
+    fn readabe_bytes(&self) -> usize;
 }
 
 trait MinecraftWriteTypes {
     
-    fn write_var_int(&mut self, int: u32) -> Result<()>;
+    fn write_var_int(&mut self, int: u32);
 
-    fn write_var_string(&mut self, str: &str) -> Result<()>;
+    fn write_var_string(&mut self, str: &str);
 
 }
 
-impl<'a> MinecraftReadTypes for ByteReader<'a> {
+impl MinecraftWriteTypes for ByteBuffer {
+    fn write_var_int(&mut self, mut int: u32) {
+        loop {
+            if (int & !SEG_BITS) == 0 {
+                self.write_u8(int as u8);
+                return;
+            }
+            self.write_u8(((int & SEG_BITS) | CON_BIT) as u8);
+            int = int >> 7;
+        }
+    }
+
+    fn write_var_string(&mut self, str: &str) {
+        self.write_var_int(str.len() as u32);
+        self.write_bytes(str.as_bytes());
+    }
+}
+
+impl MinecraftReadTypes for ByteBuffer {
 
 
     fn read_var_int(&mut self) -> Result<u32> {
@@ -59,6 +154,10 @@ impl<'a> MinecraftReadTypes for ByteReader<'a> {
         }
     }
     
+    fn readabe_bytes(&self) -> usize {
+        return self.get_wpos() - self.get_rpos();
+    }
+    
 
 
 }
@@ -73,7 +172,10 @@ async fn main() -> io::Result<()> {
         println!("accepted connection");
         let mut state: u8 = 0;
         tokio::spawn(async move {
+            let mut accamulated_buffer = ByteBuffer::from_vec(Vec::with_capacity(8192));
+            accamulated_buffer.set_wpos(0);
             let mut buffer = vec![0;2048];
+            let mut split_packets: VecDeque<ByteBuffer> = VecDeque::new();
             loop {
                 println!("prepare reading");
                 let n = socket.read(&mut buffer).await
@@ -83,28 +185,99 @@ async fn main() -> io::Result<()> {
                     return;
                 }
                 println!("got a packet {n}");
-                let mut read_buffer: ByteReader = ByteReader::from_bytes(&buffer);
-                let packet_length = read_buffer.read_var_int().unwrap();
-                let packet_id = read_buffer.read_var_int().unwrap();
-                println!("packet info {n} {packet_length} id: {packet_id}");
-                
-                if true {
-                    continue;
+                //let mut read_buffer: ByteReader = ByteReader::from_bytes(&buffer);
+                // framing
+                accamulated_buffer.write_bytes(&buffer[..n]);
+                while accamulated_buffer.readabe_bytes() > 0 {
+                    let bytes_to_read = accamulated_buffer.readabe_bytes();
+                    let reader_marker = accamulated_buffer.get_rpos();
+                    let packet_length = match accamulated_buffer.read_var_int() {
+                        Ok(n) => n,
+                        Err(e) => {
+                            if e.kind() == ErrorKind::UnexpectedEof {
+                                accamulated_buffer.set_rpos(reader_marker); // varint isnt full
+                                break;
+                            }
+                            panic!("{e}");
+                        }
+                    };
+                    if packet_length as usize > accamulated_buffer.readabe_bytes() {
+                        accamulated_buffer.set_rpos(reader_marker);
+                        break;
+                    }
+                    split_packets.push_back(ByteBuffer::from_vec(accamulated_buffer.read_bytes(packet_length as usize).unwrap()));
+
+                    // discard read bytes
+                    let bytes: Vec<u8> = accamulated_buffer.read_bytes(accamulated_buffer.readabe_bytes()).unwrap();
+                    accamulated_buffer.set_rpos(0);
+                    accamulated_buffer.set_wpos(0);
+                    accamulated_buffer.write_all(&bytes).unwrap();
+
                 }
-                if packet_id == 0 && state == 0 {
-                    let protocol_version = read_buffer.read_var_int().unwrap();
-                    let server_address = read_buffer.read_var_string().unwrap();
-                    let server_port = read_buffer.read_u16().unwrap();
-                    let game_state = read_buffer.read_var_int().unwrap();
-                    state = game_state as u8;
-                    println!("Got handshake protocol: {protocol_version} address: {server_address} port: {server_port} state: {game_state}");
+                for packet_buffer in split_packets.iter_mut() {
+                    let packet_id = packet_buffer.read_var_int().unwrap();
+                    println!("Handling packet {packet_id}--------------------------------------");
+                    if packet_id == 0 && state == 0 {
+                        let protocol_version = packet_buffer.read_var_int().unwrap();
+                        let server_address = packet_buffer.read_var_string().unwrap();
+                        let server_port = packet_buffer.read_u16().unwrap();
+                        let game_state = packet_buffer.read_var_int().unwrap();
+                        state = game_state as u8;
+                        println!("Got handshake protocol: {protocol_version} address: {server_address} port: {server_port} state: {game_state}");
+                    }
+                    
+                    else if packet_id == 0 && state == 1 {
+                        println!("Got status request");
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0);
+                        content_write_buffer.write_var_string(&STATUS.to_json());
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+                        println!("Sent a status response!");
+                    }
+
+                    else if packet_id == 1 && state == 1 {
+                        println!("Got ping request");
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(1);
+                        content_write_buffer.write_u64(packet_buffer.read_u64().unwrap());
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+                        println!("Sent a pong");
+                    }
                 }
-                if packet_id == 0 && state == 1 {
-                    // there is not fields in this packet, so sending a packet
-                }
+                split_packets.clear();
             }
         });
     }
+}
+
+fn allocate_buffer() -> ByteBuffer {
+    let mut content_write_buffer: ByteBuffer = ByteBuffer::from_vec(vec![0;1024]);
+    content_write_buffer.set_wpos(0);
+    content_write_buffer
+}
+
+fn prepare_packet_buffer(packet_id: u32) -> ByteBuffer {
+    let mut buffer = allocate_buffer();
+    buffer.write_var_int(packet_id);
+    buffer
+}
+
+async fn write_packet(socket: &mut TcpStream, buffer: &mut ByteBuffer) -> bool {
+    let mut framed_write_buffer: ByteBuffer = ByteBuffer::from_vec(Vec::new());
+    framed_write_buffer.write_var_int(buffer.readabe_bytes() as u32);
+    framed_write_buffer.write_all(buffer.as_bytes()).unwrap();
+    if let Err(e) = socket.write_all(framed_write_buffer.as_bytes()).await {
+        eprintln!("Error {e}");
+        return false;
+    };
+    framed_write_buffer.write_all(buffer.as_bytes()).unwrap();
+    if let Err(e) = socket.flush().await {
+        eprintln!("Error {e}");
+        return false;
+    };
+    true
 }
 
 //fn readVarInt(bytes: &[u8]) -> Result<(u32, usize), ()> {
