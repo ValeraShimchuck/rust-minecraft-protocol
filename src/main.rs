@@ -3,9 +3,12 @@ use std::collections::VecDeque;
 use std::fmt::format;
 use std::io::{Read, Write};
 use std::io::{Error, Result, ErrorKind};
+use std::ops::Deref;
 use bytebuffer::{ByteBuffer, ByteReader};
 use uuid::Uuid;
 use once_cell::sync::Lazy;
+use fastnbt::{Value, nbt};
+use serde::{Serialize, Deserialize};
 
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -14,6 +17,312 @@ use tokio::net::{TcpListener, TcpStream};
 const SEG_BITS: u32 = 0x7F;
 const CON_BIT: u32 = 0x80;
 const SERVER_ICON: &str = "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";
+static REGISTRY: Lazy<Value> = Lazy::new(|| {
+    nbt!({
+        "minecraft:worldgen/biome": {
+            "type": "minecraft:worldgen/biome",
+            "value": [
+                {
+                    "name": "minecraft:plains",
+                    "id": 0,
+                    "element": {
+                        "has_precipitation": 0 as u8,
+                        "temperature": 1.0f32,
+                        "downfall": 0.5f32,
+                        "effects": {
+                            "fog_color": 0xE7F1F3,
+                            "water_color": 0x356AFA,
+                            "water_fog_color": 0x2146AE,
+                            "sky_color": 0x9AE1FA
+                        }
+                    }
+                }
+            ]
+        },
+        "minecraft:chat_type": {
+            "type": "minecraft:chat_type",
+            "value": [
+                {
+                    "name": "minecraft:default",
+                    "id": 0,
+                    "element": {
+                        "chat": {
+                            "translation_key": "chat.type.text",
+                            "parameters": [
+                                "sender",
+                                "content",
+                                "target"
+                            ]
+                        },
+                        "narration": {
+                            "translation_key": "chat.type.text",
+                            "parameters": [
+                                "sender",
+                                "content",
+                                "target"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "minecraft:dimension_type": {
+            "type": "minecraft:dimension_type",
+            "value": [
+                {
+                    "name": "minecraft:overworld",
+                    "id": 0,
+                    "element": {
+                        "piglin_safe": 0 as u8,
+                        "natural": 1 as u8,
+                        "ambient_light": 0.0f32,
+                        "monster_spawn_block_light_limit": 0 as u8,
+                        "infiniburn": "#minecraft:infiniburn_overworld",
+                        "respawn_anchor_works": 0 as u8,
+                        "has_skylight": 1 as u8,
+                        "bed_works": 1 as u8,
+                        "effects": "minecraft:overworld",
+                        "has_raids": 1 as u8,
+                        "logical_height": 384,
+                        "coordinate_scale": 1.0f32,
+                        "monster_spawn_light_level": {
+                            "type": "minecraft:uniform",
+                            "value": {
+                                "min_inclusive": 0,
+                                "max_inclusive": 7
+                            }
+                        },
+                        "min_y": -64,
+                        "ultrawarm": 0 as u8,
+                        "has_ceiling": 0 as u8,
+                        "height": 384
+                        }
+                }
+            ]
+        },
+        "minecraft:damage_type": {
+            "type": "minecraft:damage_type",
+            "value": [
+                {
+                    "name": "minecraft:arrow",
+                    "id": 0,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:in_fire",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:lightning_bolt",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:on_fire",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:lava",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:hot_floor",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:in_wall",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:cramming",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:drown",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:starve",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:cactus",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:fall",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:fly_into_wall",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:out_of_world",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:generic",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:magic",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:wither",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:dragon_breath",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:dry_out",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:sweet_berry_bush",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:freeze",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:stalagmite",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:outside_border",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:generic_kill",
+                    "id": 1,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                }
+            ]
+        }
+    })
+});
 //struct ByteBuffer {
 //    index: Cell<usize>,
 //    buffer: Vec<u8>
@@ -22,6 +331,13 @@ const SERVER_ICON: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR
 struct PlayerSample {
     uuid: Uuid,
     name: String
+}
+
+#[derive(Serialize)]
+struct Registry {
+
+
+
 }
 
 impl PlayerSample {
@@ -97,6 +413,8 @@ trait MinecraftReadTypes {
     fn read_var_string(&mut self) -> std::io::Result<String>;
 
     fn readabe_bytes(&self) -> usize;
+
+    fn read_uuid(&mut self) -> Result<Uuid>;
 }
 
 trait MinecraftWriteTypes {
@@ -104,6 +422,8 @@ trait MinecraftWriteTypes {
     fn write_var_int(&mut self, int: u32);
 
     fn write_var_string(&mut self, str: &str);
+
+    fn write_uuid(&mut self, uuid: &Uuid);
 
 }
 
@@ -122,6 +442,12 @@ impl MinecraftWriteTypes for ByteBuffer {
     fn write_var_string(&mut self, str: &str) {
         self.write_var_int(str.len() as u32);
         self.write_bytes(str.as_bytes());
+    }
+    
+    fn write_uuid(&mut self, uuid: &Uuid) {
+        let (most_sig_bits, least_sig_bits) = uuid.as_u64_pair();
+        self.write_u64(most_sig_bits);
+        self.write_u64(least_sig_bits);
     }
 }
 
@@ -156,6 +482,12 @@ impl MinecraftReadTypes for ByteBuffer {
     
     fn readabe_bytes(&self) -> usize {
         return self.get_wpos() - self.get_rpos();
+    }
+    
+    fn read_uuid(&mut self) -> Result<Uuid> {
+        let most_sig_bits = self.read_u64()?;
+        let least_sig_bits = self.read_u64()?;
+        Ok(Uuid::from_u64_pair(most_sig_bits, least_sig_bits))
     }
     
 
@@ -216,7 +548,7 @@ async fn main() -> io::Result<()> {
                 }
                 for packet_buffer in split_packets.iter_mut() {
                     let packet_id = packet_buffer.read_var_int().unwrap();
-                    println!("Handling packet {packet_id}--------------------------------------");
+                    println!("Handling packet {packet_id} {state}--------------------------------------");
                     if packet_id == 0 && state == 0 {
                         let protocol_version = packet_buffer.read_var_int().unwrap();
                         let server_address = packet_buffer.read_var_string().unwrap();
@@ -244,6 +576,65 @@ async fn main() -> io::Result<()> {
                             return;
                         }
                         println!("Sent a pong");
+                    }
+
+                    else if packet_id == 0 && state == 2 {
+                        let name = packet_buffer.read_var_string().unwrap();
+                        let uuid = packet_buffer.read_uuid().unwrap();
+                        println!("got user {name} {uuid}");
+
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(2);
+                        content_write_buffer.write_uuid(&uuid);
+                        content_write_buffer.write_var_string(&name);
+                        content_write_buffer.write_var_int(0);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+                        println!("sent login success");
+                    }
+                    else if packet_id == 3 && state == 2 {
+                        state = 3;
+                        println!("state is changed");
+                        let mut data = fastnbt::to_bytes(REGISTRY.deref()).unwrap();
+                        data.swap(2, 0);
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(5);
+                        content_write_buffer.write_bytes(&data[2..]);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(2);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+                        //println!("registry {}",  data.iter().fold("".to_string(), |mut left, right| {left.push_str(&format!("|{:#04X}", right)); left}));
+                        println!("finished configuration awaiting for player aknowledgement");
+                    } else if packet_id == 2 && state == 3 {
+                        state = 4;
+                        println!("player is moved to play state");
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x29);
+                        content_write_buffer.write_u32(0);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_var_int(1);
+                        content_write_buffer.write_var_string("minecraft:overworld");
+                        content_write_buffer.write_var_int(100);
+                        content_write_buffer.write_var_int(10);
+                        content_write_buffer.write_var_int(10);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_var_string("minecraft:overworld");
+                        content_write_buffer.write_var_string("minecraft:overworld");
+                        content_write_buffer.write_u64(0);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_i8(-1);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_var_int(0);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+                        println!("player got play login packet")
                     }
                 }
                 split_packets.clear();
