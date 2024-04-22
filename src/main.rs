@@ -328,6 +328,13 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
 //    buffer: Vec<u8>
 //}
 
+static HEIGHT_MAP: Lazy<Value> = Lazy::new(|| {
+    nbt!({
+        "MOTION_BLOCKING": u64_filled_vec(36),
+        "WORLD_SURFACE": u64_filled_vec(36)
+    })
+});
+
 struct PlayerSample {
     uuid: Uuid,
     name: String
@@ -425,6 +432,8 @@ trait MinecraftWriteTypes {
 
     fn write_uuid(&mut self, uuid: &Uuid);
 
+    fn write_compound(&mut self, nbt: &Value);
+
 }
 
 impl MinecraftWriteTypes for ByteBuffer {
@@ -443,11 +452,19 @@ impl MinecraftWriteTypes for ByteBuffer {
         self.write_var_int(str.len() as u32);
         self.write_bytes(str.as_bytes());
     }
+
+
     
     fn write_uuid(&mut self, uuid: &Uuid) {
         let (most_sig_bits, least_sig_bits) = uuid.as_u64_pair();
         self.write_u64(most_sig_bits);
         self.write_u64(least_sig_bits);
+    }
+    
+    fn write_compound(&mut self, nbt: &Value) {
+        let mut data = fastnbt::to_bytes(nbt).unwrap();
+        data.swap(2, 0);
+        self.write_bytes(&data[2..]);
     }
 }
 
@@ -634,7 +651,50 @@ async fn main() -> io::Result<()> {
                         if !write_packet(&mut socket, &mut content_write_buffer).await {
                             return;
                         }
-                        println!("player got play login packet")
+                        println!("player got play login packet");
+
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x52);
+                        content_write_buffer.write_var_int(0);
+                        content_write_buffer.write_var_int(0);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+
+                        // send chunk
+
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x25);
+                        content_write_buffer.write_i32(0);
+                        content_write_buffer.write_i32(0);
+                        content_write_buffer.write_compound(&HEIGHT_MAP);
+                        content_write_buffer.write_var_int(192);
+                        for _i in 0..384/16 {
+                            content_write_buffer.write_u16(0);
+                            for _j in 0..2 {
+                                content_write_buffer.write_var_int(0);
+                                content_write_buffer.write_var_int(0);
+                                content_write_buffer.write_var_int(0);
+                            }
+                        }
+                        content_write_buffer.write_var_int(0);
+                        // light
+                        content_write_buffer.write_var_int(0);
+                        content_write_buffer.write_var_int(0);
+                        content_write_buffer.write_var_int(0);
+                        content_write_buffer.write_var_int(0);
+                        content_write_buffer.write_var_int(0);
+                        content_write_buffer.write_var_int(0);
+                        
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+                        println!("Sent chunk")
+                    }
+                    else if packet_id == 23 && state == 4 {
+                        let x = packet_buffer.read_f64().unwrap();
+                        let y = packet_buffer.read_f64().unwrap();
+                        let z = packet_buffer.read_f64().unwrap();
+                        let on_ground = packet_buffer.read_u8().unwrap() == 1;
+                        println!("Got user pos: {x} {y} {z} {on_ground}");
                     }
                 }
                 split_packets.clear();
@@ -644,7 +704,7 @@ async fn main() -> io::Result<()> {
 }
 
 fn allocate_buffer() -> ByteBuffer {
-    let mut content_write_buffer: ByteBuffer = ByteBuffer::from_vec(vec![0;1024]);
+    let mut content_write_buffer: ByteBuffer = ByteBuffer::from_vec(vec![0;0]);
     content_write_buffer.set_wpos(0);
     content_write_buffer
 }
@@ -663,12 +723,18 @@ async fn write_packet(socket: &mut TcpStream, buffer: &mut ByteBuffer) -> bool {
         eprintln!("Error {e}");
         return false;
     };
-    framed_write_buffer.write_all(buffer.as_bytes()).unwrap();
+    //framed_write_buffer.write_all(buffer.as_bytes()).unwrap();
     if let Err(e) = socket.flush().await {
         eprintln!("Error {e}");
         return false;
     };
     true
+}
+
+fn u64_filled_vec(size: usize) -> Vec<u64> {
+    let mut vec = Vec::with_capacity(size);
+    vec.resize(size, 0);
+    vec
 }
 
 //fn readVarInt(bytes: &[u8]) -> Result<(u32, usize), ()> {
