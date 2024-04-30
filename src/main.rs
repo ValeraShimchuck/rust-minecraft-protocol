@@ -1,10 +1,14 @@
-use std::cell::Cell;
+use std::borrow::BorrowMut;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::fmt::format;
 use std::io::{Read, Write};
 use std::io::{Error, Result, ErrorKind};
 use std::ops::Deref;
+use std::os::windows::io::AsSocket;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use bytebuffer::{ByteBuffer, ByteReader};
+use tokio::time::{sleep, Instant};
 use uuid::Uuid;
 use once_cell::sync::Lazy;
 use fastnbt::{Value, nbt};
@@ -123,7 +127,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:lightning_bolt",
-                    "id": 1,
+                    "id": 2,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -132,7 +136,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:on_fire",
-                    "id": 1,
+                    "id": 3,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -141,7 +145,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:lava",
-                    "id": 1,
+                    "id": 4,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -150,7 +154,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:hot_floor",
-                    "id": 1,
+                    "id": 5,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -159,7 +163,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:in_wall",
-                    "id": 1,
+                    "id": 6,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -168,7 +172,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:cramming",
-                    "id": 1,
+                    "id": 7,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -177,7 +181,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:drown",
-                    "id": 1,
+                    "id": 8,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -186,7 +190,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:starve",
-                    "id": 1,
+                    "id": 9,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -195,7 +199,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:cactus",
-                    "id": 1,
+                    "id": 10,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -204,7 +208,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:fall",
-                    "id": 1,
+                    "id": 11,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -213,7 +217,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:fly_into_wall",
-                    "id": 1,
+                    "id": 12,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -222,7 +226,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:out_of_world",
-                    "id": 1,
+                    "id": 13,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -231,7 +235,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:generic",
-                    "id": 1,
+                    "id": 14,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -240,7 +244,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:magic",
-                    "id": 1,
+                    "id": 15,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -249,7 +253,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:wither",
-                    "id": 1,
+                    "id": 16,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -258,7 +262,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:dragon_breath",
-                    "id": 1,
+                    "id": 17,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -267,7 +271,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:dry_out",
-                    "id": 1,
+                    "id": 18,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -276,7 +280,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:sweet_berry_bush",
-                    "id": 1,
+                    "id": 19,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -285,7 +289,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:freeze",
-                    "id": 1,
+                    "id": 20,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -294,7 +298,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:stalagmite",
-                    "id": 1,
+                    "id": 21,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -303,7 +307,7 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:outside_border",
-                    "id": 1,
+                    "id": 22,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -312,7 +316,16 @@ static REGISTRY: Lazy<Value> = Lazy::new(|| {
                 },
                 {
                     "name": "minecraft:generic_kill",
-                    "id": 1,
+                    "id": 23,
+                    "element": {
+                        "scaling": "when_caused_by_living_non_player",
+                        "exhaustion": 0.1f32,
+                        "message_id": "arrow"
+                    }
+                },
+                {
+                    "name": "minecraft:player_attack",
+                    "id": 24,
                     "element": {
                         "scaling": "when_caused_by_living_non_player",
                         "exhaustion": 0.1f32,
@@ -511,6 +524,11 @@ impl MinecraftReadTypes for ByteBuffer {
 
 }
 
+
+fn now() -> u128 {
+    return  SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+}
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     println!("starting server");
@@ -518,22 +536,39 @@ async fn main() -> io::Result<()> {
     println!("started server");
     loop {
         let (mut socket, _) = listener.accept().await?;
-        println!("accepted connection");
         let mut state: u8 = 0;
         tokio::spawn(async move {
             let mut accamulated_buffer = ByteBuffer::from_vec(Vec::with_capacity(8192));
             accamulated_buffer.set_wpos(0);
             let mut buffer = vec![0;2048];
             let mut split_packets: VecDeque<ByteBuffer> = VecDeque::new();
+            let mut last_keepalive: u128 = now();
             loop {
-                println!("prepare reading");
-                let n = socket.read(&mut buffer).await
-                    .expect("failed to read data from socket");
-
+                let current_time = now();
+                if current_time - last_keepalive > 10000 && state == 4 {
+                    let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x24);
+                    content_write_buffer.write_u64(now() as u64);
+                    if !write_packet(&mut socket, &mut content_write_buffer).await {
+                        return;
+                    }
+                    last_keepalive = now();
+                }
+                
+                let n = match socket.try_read(&mut buffer) {
+                    Ok(n) => n,
+                    Err(ref e) => if e.kind() == io::ErrorKind::WouldBlock {
+                        usize::MAX
+                    } else {
+                        panic!("{e}");
+                    }
+                };
+                if n == usize::MAX {
+                    sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
                 if n == 0 {
                     return;
                 }
-                println!("got a packet {n}");
                 //let mut read_buffer: ByteReader = ByteReader::from_bytes(&buffer);
                 // framing
                 accamulated_buffer.write_bytes(&buffer[..n]);
@@ -547,7 +582,8 @@ async fn main() -> io::Result<()> {
                                 accamulated_buffer.set_rpos(reader_marker); // varint isnt full
                                 break;
                             }
-                            panic!("{e}");
+                            println!("{e}");
+                            return;
                         }
                     };
                     if packet_length as usize > accamulated_buffer.readabe_bytes() {
@@ -565,40 +601,33 @@ async fn main() -> io::Result<()> {
                 }
                 for packet_buffer in split_packets.iter_mut() {
                     let packet_id = packet_buffer.read_var_int().unwrap();
-                    println!("Handling packet {packet_id} {state}--------------------------------------");
                     if packet_id == 0 && state == 0 {
                         let protocol_version = packet_buffer.read_var_int().unwrap();
                         let server_address = packet_buffer.read_var_string().unwrap();
                         let server_port = packet_buffer.read_u16().unwrap();
                         let game_state = packet_buffer.read_var_int().unwrap();
                         state = game_state as u8;
-                        println!("Got handshake protocol: {protocol_version} address: {server_address} port: {server_port} state: {game_state}");
                     }
                     
                     else if packet_id == 0 && state == 1 {
-                        println!("Got status request");
                         let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0);
                         content_write_buffer.write_var_string(&STATUS.to_json());
                         if !write_packet(&mut socket, &mut content_write_buffer).await {
                             return;
                         }
-                        println!("Sent a status response!");
                     }
 
                     else if packet_id == 1 && state == 1 {
-                        println!("Got ping request");
                         let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(1);
                         content_write_buffer.write_u64(packet_buffer.read_u64().unwrap());
                         if !write_packet(&mut socket, &mut content_write_buffer).await {
                             return;
                         }
-                        println!("Sent a pong");
                     }
 
                     else if packet_id == 0 && state == 2 {
                         let name = packet_buffer.read_var_string().unwrap();
                         let uuid = packet_buffer.read_uuid().unwrap();
-                        println!("got user {name} {uuid}");
 
                         let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(2);
                         content_write_buffer.write_uuid(&uuid);
@@ -607,11 +636,9 @@ async fn main() -> io::Result<()> {
                         if !write_packet(&mut socket, &mut content_write_buffer).await {
                             return;
                         }
-                        println!("sent login success");
                     }
                     else if packet_id == 3 && state == 2 {
                         state = 3;
-                        println!("state is changed");
                         let mut data = fastnbt::to_bytes(REGISTRY.deref()).unwrap();
                         data.swap(2, 0);
                         let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(5);
@@ -624,10 +651,8 @@ async fn main() -> io::Result<()> {
                             return;
                         }
                         //println!("registry {}",  data.iter().fold("".to_string(), |mut left, right| {left.push_str(&format!("|{:#04X}", right)); left}));
-                        println!("finished configuration awaiting for player aknowledgement");
                     } else if packet_id == 2 && state == 3 {
                         state = 4;
-                        println!("player is moved to play state");
                         let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x29);
                         content_write_buffer.write_u32(0);
                         content_write_buffer.write_u8(0);
@@ -642,7 +667,7 @@ async fn main() -> io::Result<()> {
                         content_write_buffer.write_var_string("minecraft:overworld");
                         content_write_buffer.write_var_string("minecraft:overworld");
                         content_write_buffer.write_u64(0);
-                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_u8(3);
                         content_write_buffer.write_i8(-1);
                         content_write_buffer.write_u8(0);
                         content_write_buffer.write_u8(0);
@@ -651,7 +676,6 @@ async fn main() -> io::Result<()> {
                         if !write_packet(&mut socket, &mut content_write_buffer).await {
                             return;
                         }
-                        println!("player got play login packet");
 
                         let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x52);
                         content_write_buffer.write_var_int(0);
@@ -659,48 +683,169 @@ async fn main() -> io::Result<()> {
                         if !write_packet(&mut socket, &mut content_write_buffer).await {
                             return;
                         }
-
-                        // send chunk
-
-                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x25);
-                        content_write_buffer.write_i32(0);
-                        content_write_buffer.write_i32(0);
-                        content_write_buffer.write_compound(&HEIGHT_MAP);
-                        content_write_buffer.write_var_int(192);
-                        for _i in 0..384/16 {
-                            content_write_buffer.write_u16(0);
-                            for _j in 0..2 {
-                                content_write_buffer.write_var_int(0);
-                                content_write_buffer.write_var_int(0);
-                                content_write_buffer.write_var_int(0);
-                            }
-                        }
-                        content_write_buffer.write_var_int(0);
-                        // light
-                        content_write_buffer.write_var_int(0);
-                        content_write_buffer.write_var_int(0);
-                        content_write_buffer.write_var_int(0);
-                        content_write_buffer.write_var_int(0);
-                        content_write_buffer.write_var_int(0);
-                        content_write_buffer.write_var_int(0);
                         
+
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x20);
+                        content_write_buffer.write_u8(13);
+                        content_write_buffer.write_f32(0.0f32);
                         if !write_packet(&mut socket, &mut content_write_buffer).await {
                             return;
                         }
-                        println!("Sent chunk")
+
+                        // send chunk
+
+                        for x in -1..=1 {
+                            for y in -1..=1 {
+                                let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x25);
+                                content_write_buffer.write_i32(x);
+                                content_write_buffer.write_i32(y);
+                                content_write_buffer.write_compound(&HEIGHT_MAP);
+                                content_write_buffer.write_var_int(192);
+                                for _i in 0..384/16 {
+                                    content_write_buffer.write_u16(0);
+                                    for _j in 0..2 {
+                                        content_write_buffer.write_var_int(0);
+                                        content_write_buffer.write_var_int(0);
+                                        content_write_buffer.write_var_int(0);
+                                    }
+                                }
+                                content_write_buffer.write_var_int(0);
+                                // light
+                                content_write_buffer.write_var_int(0);
+                                content_write_buffer.write_var_int(0);
+                                content_write_buffer.write_var_int(0);
+                                content_write_buffer.write_var_int(0);
+                                content_write_buffer.write_var_int(0);
+                                content_write_buffer.write_var_int(0);
+                            
+                                if !write_packet(&mut socket, &mut content_write_buffer).await {
+                                    return;
+                                }
+                            }
+                        }
+                        
+
+                        // teleport player
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x3E);
+                        content_write_buffer.write_f64(0.5f64);
+                        content_write_buffer.write_f64(1.0f64);
+                        content_write_buffer.write_f64(0.5f64);
+                        content_write_buffer.write_f32(0.0f32);
+                        content_write_buffer.write_f32(0.0f32);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_var_int(0);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+
+                        // set block
+                        //let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x09);
+                        //content_write_buffer.write_u64(0);
+                        //content_write_buffer.write_var_int(1);
+                        //if !write_packet(&mut socket, &mut content_write_buffer).await {
+                        //    return;
+                        //}
+//
+                        //
+                        //let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x09);
+                        //content_write_buffer.write_u64(2 | (1 << 38));
+                        //content_write_buffer.write_var_int(12514);
+                        //if !write_packet(&mut socket, &mut content_write_buffer).await {
+                        //    return;
+                        //}
+                        if !write_block(&mut socket, 0, 1, 0, 1).await {
+                            return;
+                        };
+                        for x in -2..=2 {
+                            for z in -2..=2 {
+                                if !write_block(&mut socket, x, 3, z, 7406).await {
+                                    return;
+                                };
+                                if !write_block(&mut socket, x, 4, z, 1).await {
+                                    return;
+                                };
+                            }
+                        }
+                        //if !write_block(&mut socket, 0, 2, 1, 12514).await {
+                        //    return;
+                        //};
+                        //if !write_block(&mut socket, 0, 3, 0, 12514).await {
+                        //    return;
+                        //};
+                        //if !write_block(&mut socket, 1, 2, 0, 12514).await {
+                        //    return;
+                        //};
+                        //if !write_block(&mut socket, 0, 2, -1, 12514).await {
+                        //    return;
+                        //};
+                        //if !write_block(&mut socket, -1, 2, 0, 12514).await {
+                        //    return;
+                        //};
+                        //if !write_block(&mut socket, 0, 1, 0, 12514).await {
+                        //    return;
+                        //};
+
+                        // send armorstand with player's entity id
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x01);
+                        content_write_buffer.write_var_int(1);
+                        let entity_uuid = Uuid::new_v4();
+                        content_write_buffer.write_uuid(&entity_uuid);
+                        content_write_buffer.write_var_int(2);
+                        content_write_buffer.write_f64(0.5f64);
+                        content_write_buffer.write_f64(1.0f64);
+                        content_write_buffer.write_f64(0.5f64);
+                        content_write_buffer.write_i8(-64);
+                        content_write_buffer.write_i8(0);
+                        content_write_buffer.write_i8(0);
+                        content_write_buffer.write_var_int(0);
+                        content_write_buffer.write_u16(0);
+                        content_write_buffer.write_u16(0);
+                        content_write_buffer.write_u16(0);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x56);
+                        content_write_buffer.write_var_int(1);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_u8(0);
+                        content_write_buffer.write_u8(0x20);
+                        content_write_buffer.write_u8(0xff);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+
+                        
+                        let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x50);
+                        content_write_buffer.write_var_int(1);
+                        if !write_packet(&mut socket, &mut content_write_buffer).await {
+                            return;
+                        }
+
                     }
                     else if packet_id == 23 && state == 4 {
                         let x = packet_buffer.read_f64().unwrap();
                         let y = packet_buffer.read_f64().unwrap();
                         let z = packet_buffer.read_f64().unwrap();
                         let on_ground = packet_buffer.read_u8().unwrap() == 1;
-                        println!("Got user pos: {x} {y} {z} {on_ground}");
                     }
                 }
                 split_packets.clear();
             }
         });
     }
+}
+
+async fn write_block<T>(socket: &mut T, x: i32, y: i16, z: i32, block_id: u32) -> bool
+where T: AsyncWriteExt + Unpin
+{
+    let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x09);
+    content_write_buffer.write_i64((y & 0xfff) as i64 | (((z & 0x3ffffff) as i64) << 12) | (((x &  & 0x3ffffff) as i64) << 38));
+    content_write_buffer.write_var_int(block_id);
+    if !write_packet(socket, &mut content_write_buffer).await {
+        return false;
+    }
+    return true;
 }
 
 fn allocate_buffer() -> ByteBuffer {
@@ -715,7 +860,8 @@ fn prepare_packet_buffer(packet_id: u32) -> ByteBuffer {
     buffer
 }
 
-async fn write_packet(socket: &mut TcpStream, buffer: &mut ByteBuffer) -> bool {
+async fn write_packet<T>(socket: &mut T, buffer: &mut ByteBuffer) -> bool
+where T: AsyncWriteExt + Unpin {
     let mut framed_write_buffer: ByteBuffer = ByteBuffer::from_vec(Vec::new());
     framed_write_buffer.write_var_int(buffer.readabe_bytes() as u32);
     framed_write_buffer.write_all(buffer.as_bytes()).unwrap();
