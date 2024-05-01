@@ -559,7 +559,8 @@ async fn main() -> io::Result<()> {
                     Err(ref e) => if e.kind() == io::ErrorKind::WouldBlock {
                         usize::MAX
                     } else {
-                        panic!("{e}");
+                        println!("{e}");
+                        return;
                     }
                 };
                 if n == usize::MAX {
@@ -694,8 +695,8 @@ async fn main() -> io::Result<()> {
 
                         // send chunk
 
-                        for x in -1..=1 {
-                            for y in -1..=1 {
+                        for x in -15..=15 {
+                            for y in -15..=15 {
                                 let mut content_write_buffer: ByteBuffer = prepare_packet_buffer(0x25);
                                 content_write_buffer.write_i32(x);
                                 content_write_buffer.write_i32(y);
@@ -756,8 +757,8 @@ async fn main() -> io::Result<()> {
                         if !write_block(&mut socket, 0, 1, 0, 1).await {
                             return;
                         };
-                        for x in -2..=2 {
-                            for z in -2..=2 {
+                        for x in -4..=4 {
+                            for z in -4..=4 {
                                 if !write_block(&mut socket, x, 3, z, 7406).await {
                                     return;
                                 };
