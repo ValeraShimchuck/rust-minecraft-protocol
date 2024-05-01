@@ -6,3 +6,6 @@ When you join in:
 
 address:
 localhost:25565
+
+version:
+1.20.4
